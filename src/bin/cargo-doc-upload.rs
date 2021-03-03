@@ -1,5 +1,5 @@
 extern crate cargo;
-extern crate cargo_travis;
+extern crate cargo_travis_fork as cargo_travis;
 extern crate docopt;
 extern crate env_logger;
 #[macro_use]
@@ -9,11 +9,11 @@ extern crate serde_derive;
 #[macro_use]
 extern crate log;
 
-use std::env;
-use std::path::{Path, PathBuf};
-use cargo::util::{Config, CliResult, CliError};
+use cargo::util::{CliError, CliResult, Config};
 use docopt::Docopt;
 use failure::err_msg;
+use std::env;
+use std::path::{Path, PathBuf};
 
 // Note about --path: we don't use the proper default syntax because the default
 // value depends on an env variable.
@@ -50,8 +50,10 @@ pub struct Options {
 }
 
 fn execute(options: Options, _: &Config) -> CliResult {
-    debug!("executing; cmd=cargo-doc-upload; env={:?}",
-           env::args().collect::<Vec<_>>());
+    debug!(
+        "executing; cmd=cargo-doc-upload; env={:?}",
+        env::args().collect::<Vec<_>>()
+    );
 
     if options.flag_version {
         println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
@@ -89,15 +91,25 @@ fn execute(options: Options, _: &Config) -> CliResult {
         format!("git@github.com:{}.git", slug)
     };
 
-    let message = options.flag_message.unwrap_or("Automatic Travis documentation build".to_string());
+    let message = options
+        .flag_message
+        .unwrap_or("Automatic Travis documentation build".to_string());
     let gh_pages = options.flag_deploy.unwrap_or("gh-pages".to_string());
     let clobber_index = options.flag_clobber_index;
 
-    let local_doc_path = options.flag_target
+    let local_doc_path = options
+        .flag_target
         .map(|v| Path::new("target").join(v).join("doc"))
         .unwrap_or(PathBuf::from("target/doc"));
 
-    match cargo_travis::doc_upload(&message, &origin, &gh_pages, &path, &local_doc_path, clobber_index) {
+    match cargo_travis::doc_upload(
+        &message,
+        &origin,
+        &gh_pages,
+        &path,
+        &local_doc_path,
+        clobber_index,
+    ) {
         Ok(..) => Ok(()),
         Err((string, err)) => Err(CliError::new(err_msg(string), err)),
     }
@@ -115,18 +127,18 @@ fn main() {
     let result = (|| {
         let args: Vec<_> = try!(env::args_os()
             .map(|s| {
-                s.into_string().map_err(|s| {
-                    format_err!("invalid unicode in argument: {:?}", s)
-                })
+                s.into_string()
+                    .map_err(|s| format_err!("invalid unicode in argument: {:?}", s))
             })
             .collect());
 
-        let docopt = Docopt::new(USAGE).unwrap()
+        let docopt = Docopt::new(USAGE)
+            .unwrap()
             .argv(args.iter().map(|s| &s[..]))
             .help(true);
 
         let flags = docopt.deserialize().map_err(|e| {
-            let code = if e.fatal() {1} else {0};
+            let code = if e.fatal() { 1 } else { 0 };
             CliError::new(e.into(), code)
         })?;
 
