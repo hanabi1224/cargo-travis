@@ -22,10 +22,14 @@ pub struct CoverageOptions<'a> {
     pub no_fail_fast: bool,
     pub kcov_path: &'a Path,
     pub merge_args: Vec<OsString>, // TODO: Or &[str] ?
-    pub exclude_pattern: Option<String>
+    pub exclude_pattern: Option<String>,
 }
 
-pub fn run_coverage(ws: &Workspace, options: &CoverageOptions, test_args: &[String]) -> CargoResult<Option<CargoTestError>> {
+pub fn run_coverage(
+    ws: &Workspace,
+    options: &CoverageOptions,
+    test_args: &[String],
+) -> CargoResult<Option<CargoTestError>> {
     // TODO: It'd be nice if there was a flag in compile_opts for this.
 
     // The compiler needs to be told to not remove any code that isn't called or
@@ -44,38 +48,45 @@ pub fn run_coverage(ws: &Workspace, options: &CoverageOptions, test_args: &[Stri
     }
     std::env::set_var("RUSTFLAGS", rustflags);
 
-
     let mut compilation = try!(cargo::ops::compile(ws, &options.compile_opts));
-    compilation.tests.sort_by(|a, b| {
-        (a.0.package_id(), &a.1).cmp(&(b.0.package_id(), &b.1))
-    });
+    compilation
+        .tests
+        .sort_by(|a, b| (a.0.package_id(), &a.1).cmp(&(b.0.package_id(), &b.1)));
 
     let config = options.compile_opts.config;
     let cwd = options.compile_opts.config.cwd();
 
     let mut errors = vec![];
 
-    let v : Vec<std::ffi::OsString> = test_args.iter().cloned().map::<std::ffi::OsString, _>(|val| val.into()).collect();
+    let v: Vec<std::ffi::OsString> = test_args
+        .iter()
+        .cloned()
+        .map::<std::ffi::OsString, _>(|val| val.into())
+        .collect();
 
     //let x = &compilation.tests.map(run_single_coverage);
 
     for &(ref pkg, ref kind, ref test, ref exe) in &compilation.tests {
-        let to_display = match cargo::util::without_prefix(exe, &cwd) {
-            Some(path) => path,
-            None => &**exe
+        let to_display = match &exe.strip_prefix(&cwd) {
+            Ok(path) => path,
+            Err(_) => &**exe,
         };
 
         // DLYB trick on OSX is here v
         let mut cmd = try!(compilation.target_process(options.kcov_path, pkg));
         // TODO: Make all that more configurable
         //TODO: The unwraps shouldn't cause problems... right ?
-        let target = ws.target_dir().join("kcov-".to_string() + to_display.file_name().unwrap().to_str().unwrap()).into_path_unlocked();
+        let target = ws
+            .target_dir()
+            .join("kcov-".to_string() + to_display.file_name().unwrap().to_str().unwrap())
+            .into_path_unlocked();
         let default_include_path = format!("--include-path={}", ws.root().display());
 
         let mut args = vec![
             OsString::from("--verify"),
             OsString::from(default_include_path),
-            OsString::from(target)];
+            OsString::from(target),
+        ];
 
         // add exclude path
         if let Some(ref exclude) = options.exclude_pattern {
@@ -87,12 +98,12 @@ pub fn run_coverage(ws: &Workspace, options: &CoverageOptions, test_args: &[Stri
 
         args.extend(v.clone());
         cmd.args(&args);
-        try!(config.shell().concise(|shell| {
-            shell.status("Running", to_display.display().to_string())
-        }));
-        try!(config.shell().verbose(|shell| {
-            shell.status("Running", cmd.to_string())
-        }));
+        try!(config
+            .shell()
+            .concise(|shell| { shell.status("Running", to_display.display().to_string()) }));
+        try!(config
+            .shell()
+            .verbose(|shell| { shell.status("Running", cmd.to_string()) }));
 
         let result = cmd.exec();
 
@@ -102,16 +113,19 @@ pub fn run_coverage(ws: &Workspace, options: &CoverageOptions, test_args: &[Stri
                     Ok(e) => {
                         errors.push(e);
                         if !options.no_fail_fast {
-                            return Ok(Some(CargoTestError::new(Test::UnitTest {
-                                kind: kind.clone(),
-                                name: test.clone(),
-                                pkg_name: pkg.name().to_string(),
-                            }, errors)))
+                            return Ok(Some(CargoTestError::new(
+                                Test::UnitTest {
+                                    kind: kind.clone(),
+                                    name: test.clone(),
+                                    pkg_name: pkg.name().to_string(),
+                                },
+                                errors,
+                            )));
                         }
                     }
                     Err(e) => {
                         //This is an unexpected Cargo error rather than a test failure
-                        return Err(e)
+                        return Err(e);
                     }
                 }
             }
@@ -120,19 +134,25 @@ pub fn run_coverage(ws: &Workspace, options: &CoverageOptions, test_args: &[Stri
     }
 
     // Let the user pass mergeargs
-    let mut mergeargs : Vec<OsString> = vec!["--merge".to_string().into(), options.merge_dir.as_os_str().to_os_string()];
+    let mut mergeargs: Vec<OsString> = vec![
+        "--merge".to_string().into(),
+        options.merge_dir.as_os_str().to_os_string(),
+    ];
     mergeargs.extend(options.merge_args.iter().cloned());
-    mergeargs.extend(compilation.tests.iter().map(|&(_, _, _, ref exe)|
-        ws.target_dir().join("kcov-".to_string() + exe.file_name().unwrap().to_str().unwrap()).into_path_unlocked().into()
-    ));
+    mergeargs.extend(compilation.tests.iter().map(|&(_, _, _, ref exe)| {
+        ws.target_dir()
+            .join("kcov-".to_string() + exe.file_name().unwrap().to_str().unwrap())
+            .into_path_unlocked()
+            .into()
+    }));
     let mut cmd = process(options.kcov_path.as_os_str().to_os_string());
     cmd.args(&mergeargs);
     try!(config.shell().concise(|shell| {
         shell.status("Merging coverage", options.merge_dir.display().to_string())
     }));
-    try!(config.shell().verbose(|shell| {
-        shell.status("Merging coverage", cmd.to_string())
-    }));
+    try!(config
+        .shell()
+        .verbose(|shell| { shell.status("Merging coverage", cmd.to_string()) }));
     try!(cmd.exec());
     if errors.is_empty() {
         Ok(None)
@@ -174,7 +194,7 @@ pub fn build_kcov<P: AsRef<Path>>(kcov_dir: P) -> PathBuf {
             .current_dir(kcov_dir)
             .arg("https://github.com/SimonKagstrom/kcov/archive/master.zip")
             .status()
-            .unwrap()
+            .unwrap(),
     );
 
     // Extract kcov
@@ -184,32 +204,42 @@ pub fn build_kcov<P: AsRef<Path>>(kcov_dir: P) -> PathBuf {
             .current_dir(kcov_dir)
             .arg("master.zip")
             .status()
-            .unwrap()
+            .unwrap(),
     );
 
     // Build kcov
-    fs::create_dir(&kcov_build_dir).expect(&format!("Failed to created dir {:?} for kcov", kcov_build_dir));
+    fs::create_dir(&kcov_build_dir).expect(&format!(
+        "Failed to created dir {:?} for kcov",
+        kcov_build_dir
+    ));
     println!("CMaking kcov");
     require_success(
         Command::new("cmake")
             .current_dir(&kcov_build_dir)
             .arg("..")
             .status()
-            .unwrap()
+            .unwrap(),
     );
     println!("Making kcov");
     require_success(
         Command::new("make")
             .current_dir(&kcov_build_dir)
             .status()
-            .unwrap()
+            .unwrap(),
     );
 
     assert!(kcov_build_dir.exists());
     kcov_built_path
 }
 
-pub fn doc_upload(message: &str, origin: &str, gh_pages: &str, doc_path: &str, local_doc_path: &Path, clobber_index: bool) -> Result<(), (String, i32)> {
+pub fn doc_upload(
+    message: &str,
+    origin: &str,
+    gh_pages: &str,
+    doc_path: &str,
+    local_doc_path: &Path,
+    clobber_index: bool,
+) -> Result<(), (String, i32)> {
     let doc_upload = Path::new("target/doc-upload");
 
     if !doc_upload.exists() {
@@ -232,7 +262,7 @@ pub fn doc_upload(message: &str, origin: &str, gh_pages: &str, doc_path: &str, l
                     .arg("init")
                     .arg(doc_upload)
                     .status()
-                    .unwrap()
+                    .unwrap(),
             );
             require_success(
                 Command::new("git")
@@ -240,7 +270,7 @@ pub fn doc_upload(message: &str, origin: &str, gh_pages: &str, doc_path: &str, l
                     .arg("checkout")
                     .args(&["-b", gh_pages])
                     .status()
-                    .unwrap()
+                    .unwrap(),
             );
         }
     }
@@ -259,7 +289,11 @@ pub fn doc_upload(message: &str, origin: &str, gh_pages: &str, doc_path: &str, l
     let doc_upload_branch = doc_upload_branch.canonicalize().unwrap();
 
     if !doc_upload_branch.starts_with(env::current_dir().unwrap().join(doc_upload)) {
-        return Err(("Path passed in `--path` is outside the intended `target/doc-upload` folder".to_string(), 1));
+        return Err((
+            "Path passed in `--path` is outside the intended `target/doc-upload` folder"
+                .to_string(),
+            1,
+        ));
     }
 
     for entry in doc_upload_branch.read_dir().unwrap() {
@@ -304,7 +338,11 @@ pub fn doc_upload(message: &str, origin: &str, gh_pages: &str, doc_path: &str, l
     }
 
     let doc = local_doc_path;
-    println!("cp {} {}", doc.to_string_lossy(), doc_upload_branch.to_string_lossy());
+    println!(
+        "cp {} {}",
+        doc.to_string_lossy(),
+        doc_upload_branch.to_string_lossy()
+    );
     let mut last_progress = 0;
 
     let mut result = Ok(());
@@ -322,20 +360,19 @@ pub fn doc_upload(message: &str, origin: &str, gh_pages: &str, doc_path: &str, l
                     println!("{}/{} MiB", info.copied_bytes >> 20, info.total_bytes >> 20);
                 }
                 fs_extra::dir::TransitProcessResult::ContinueOrAbort
-            }
-        ).unwrap();
+            },
+        )
+        .unwrap();
 
         // update the badge to reflect build was successful
         // but only if we managed to extract a version number
         if version.is_ok() {
             badge_color = "#4d76ae".to_string();
         }
-    }
-    else {
+    } else {
         println!("No documentation found to upload.");
         result = Err(("No documentation generated".to_string(), 1));
     }
-    
     // make badge.json
     let json = json!({
         "schemaVersion": 1,
@@ -355,7 +392,8 @@ pub fn doc_upload(message: &str, origin: &str, gh_pages: &str, doc_path: &str, l
     };
 
     let mut file = fs::File::create(doc_upload_branch.join("badge.svg")).unwrap();
-    file.write_all(Badge::new(badge_options).unwrap().to_svg().as_bytes()).unwrap();
+    file.write_all(Badge::new(badge_options).unwrap().to_svg().as_bytes())
+        .unwrap();
 
     // Tell git to track all of the files we copied over
     // Also tracks deletions of files if things changed
@@ -366,7 +404,7 @@ pub fn doc_upload(message: &str, origin: &str, gh_pages: &str, doc_path: &str, l
             .arg("--verbose")
             .arg("--all")
             .status()
-            .unwrap()
+            .unwrap(),
     );
 
     // Save the changes
@@ -375,7 +413,8 @@ pub fn doc_upload(message: &str, origin: &str, gh_pages: &str, doc_path: &str, l
         .arg("commit")
         .arg("--verbose")
         .args(&["-m", message])
-        .status().is_err()
+        .status()
+        .is_err()
     {
         println!("No changes to the documentation.");
     } else {

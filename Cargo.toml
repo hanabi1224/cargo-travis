@@ -3,7 +3,7 @@ authors = ["roblabla <robinlambertz+dev@gmail.com>"]
 description = "Run coverage, upload docs, and more on travis."
 license = "MIT"
 name = "cargo-travis-fork"
-version = "0.0.11"
+version = "0.0.12"
 
 readme = "README.md"
 repository = "https://github.com/roblabla/cargo-travis"
@@ -11,13 +11,13 @@ repository = "https://github.com/roblabla/cargo-travis"
 keywords = ["cargo", "cargo-subcommand", "travis", "coverage", "coveralls"]
 
 [dependencies]
-badge = "0.2"
-cargo = "0.32"
+badge = "0"
+cargo = "0.35"
 docopt = "1.0"
-env_logger = "0.4"
+env_logger = "0"
 failure = "0.1"
 fs_extra = "=1.1.0"
-log = "0.3"
+log = "0"
 serde = "1.0"
-serde_derive = "1.0"
-serde_json = "1.0.33"
+serde_derive = "1"
+serde_json = "1"
